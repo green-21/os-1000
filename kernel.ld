@@ -32,4 +32,10 @@ SECTIONS {
     . = ALIGN(4);
     . += 128 * 1024;     /* 128kb */
     __stack_top = .;
+
+    /* heap 영역 배치 (64mb 짜리에 한번에 4kb씩 움직이는...)*/
+    . = ALIGN(4096);
+    __free_ram = .;
+    . += 64 * 1024 * 1024; /* 64mb */
+    __free_ram_end = .;
 }
