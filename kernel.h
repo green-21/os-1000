@@ -11,6 +11,9 @@
 #define PAGE_X (1 << 3)         // 실행 가능
 #define PAGE_U (1 << 4)         // 사용자 모드 접근 가능능
 
+#define USER_BASE 0x100000
+#define SSTATUS_SPIE (1 << 5)
+
 struct sbiret
 {
     long error;

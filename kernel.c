@@ -205,9 +205,26 @@ void map_page(uint32_t *table1, uint32_t vaddr, paddr_t paddr, uint32_t flags) {
     table0[vpn0] = ((paddr / PAGE_SIZE) << 10) | flags | PAGE_V;
 }
 
+
+
+extern char _binary_shell_bin_start[], _binary_shell_bin_size[];
+
+__attribute__((naked)) 
+void user_entry(void) {
+    __asm__ __volatile__(
+        "csrw sepc, %[sepc]         \n"     // sepc: U-mode로 전환시 실행할 프로그램 카운터
+        "csrw sstatus, %[sstatus]   \n"     // SPIE 비트 설정: U-Mode 진입시 인터럽트를 발생시키고,
+                                            //   stvec 레지스터에 등록된 핸들러 호출.
+        "sret                       \n"     // supervisor return
+        :: [sepc] "r" (USER_BASE),
+           [sstatus] "r" (SSTATUS_SPIE)
+    );
+}
+
+
 struct process procs[PROCS_MAX]; // 모든 프로세스 제어 구조체 배열
 
-struct process *create_process(uint32_t pc) {
+struct process *create_process(const void* image, size_t image_size) {
     //
     // 1. 미사용(UNUSED) 상태의 프로세스 구조체 찾기
     //
@@ -239,10 +256,10 @@ struct process *create_process(uint32_t pc) {
     *--sp = 0;                      // s2
     *--sp = 0;                      // s1
     *--sp = 0;                      // s0
-    *--sp = (uint32_t) pc;          // ra (처음 실행 시 점프할 주소)
+    *--sp = (uint32_t) user_entry;  // ra (처음 실행 시 점프할 주소)
 
     //
-    // 3. Mapping Page
+    // 3. Map kernel pages.
     //
     uint32_t *page_table = (uint32_t*) alloc_pages(1);
     printf("created page_table :0x%x\n", page_table);
@@ -251,7 +268,23 @@ struct process *create_process(uint32_t pc) {
     {
         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
     }
-    // 4. procss 초기화
+
+    //
+    // 4. map user pages. (바이너리 코드를 메모리에 로드)
+    //
+    for(uint32_t off=0; off<image_size; off += PAGE_SIZE) {
+        paddr_t page = alloc_pages(1);
+
+        size_t remaining = image_size - off;
+        size_t copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
+
+        memcpy((void*) page, image + off, copy_size);
+        map_page(page_table, USER_BASE + off, page, 
+            PAGE_U | PAGE_R | PAGE_W | PAGE_X);
+    }
+
+    //
+    // 5. procss 초기화
     //
     proc->pid = i + 1;
     proc->state = PROC_RUNNABLE;
@@ -313,16 +346,14 @@ void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
     WRITE_CSR(stvec, (uint32_t) kernel_entry);      // 예외 발생시 호출할 함수 설정
 
-    idle_proc = create_process((uint32_t) NULL);
+    idle_proc = create_process(NULL, 0);
     idle_proc->pid = 0;     // idle
     current_proc = idle_proc;
 
-    proc_a = create_process((uint32_t) proc_a_entry);
-    proc_b = create_process((uint32_t) proc_b_entry);
-
+    create_process(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
     yield();
 
-    PANIC("unreachable here!");
+    PANIC("switched to idle process");
 }
 
 __attribute__((section(".text.boot")))      // 함수를 .text.boot라는 섹션에 배치
