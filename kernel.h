@@ -4,6 +4,13 @@
 
 #define PAGE_SIZE 4096
 
+#define SATP_SV32 (1u << 31)    // satp에 31번째 비트에 1을 줘 가상 주소를 사용하고 있음을 알리는 역할할
+#define PAGE_V (1 << 0)         // "Valid" 비트 (엔트리가 유효함.)
+#define PAGE_R (1 << 1)         // 읽기 가능
+#define PAGE_W (1 << 2)         // 쓰기 가능
+#define PAGE_X (1 << 3)         // 실행 가능
+#define PAGE_U (1 << 4)         // 사용자 모드 접근 가능능
+
 struct sbiret
 {
     long error;
