@@ -27,12 +27,16 @@ void putchar(char ch) {
     sbi_call(ch, 0, 0, 0, 0, 0, 0, 1 /* Console Putchar */);
 }
 
+long getchar(void) {
+    struct sbiret ret = sbi_call(0, 0, 0, 0, 0, 0, 0, 2);
+    return ret.error;
+}
+
 __attribute__((naked))
 __attribute__((aligned(4)))
 void kernel_entry(void) {
     __asm__ __volatile__(
         "csrrw sp, sscratch, sp\n"       // sscrath와 sp를 swap
-
         "addi sp, sp, -4 * 31\n"    // sp로부터 4*31 영역 할당당
         "sw ra,  4 * 0(sp)\n"       // ra 값을 sp가 가리키는 메모리에 저장
         "sw gp,  4 * 1(sp)\n"
@@ -110,14 +114,6 @@ void kernel_entry(void) {
     );
 }
 
-void handle_trap(struct trap_frame *f) {
-    uint32_t scause = READ_CSR(scause);
-    uint32_t stval = READ_CSR(stval);
-    uint32_t user_pc = READ_CSR(sepc);
-
-    PANIC("unexpected trap scause=%x, stval=%x, sepc=%x\n", scause, stval, user_pc);
-}
-
 extern char __free_ram[], __free_ram_end[];
 
 paddr_t alloc_pages(uint32_t n) {
@@ -132,10 +128,6 @@ paddr_t alloc_pages(uint32_t n) {
     memset((void*) paddr, 0, n * PAGE_SIZE);
     return paddr;
 }
-
-#define PROCS_MAX 8
-#define PROC_UNUSED 0
-#define PROC_RUNNABLE 1
 
 struct process {
     int pid;
@@ -262,7 +254,7 @@ struct process *create_process(const void* image, size_t image_size) {
     // 3. Map kernel pages.
     //
     uint32_t *page_table = (uint32_t*) alloc_pages(1);
-    printf("created page_table :0x%x\n", page_table);
+    
     for(paddr_t paddr = (paddr_t) __kernel_base;
          paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE) 
     {
@@ -323,28 +315,60 @@ void yield(void) {
     switch_context(&prev->sp, &next->sp);
 }
 
-struct process *proc_a;
-struct process *proc_b;
-
-void proc_a_entry(void) {
-    printf("starting process A\n");
-    while (1) {
-        // putchar('A');
-        yield();
+void handle_syscall(struct trap_frame *f) {
+    switch(f->a3) {
+        case SYS_PUTCHAR:
+        {
+            putchar(f->a0);
+            break;
+        }
+        case SYS_GETCHAR:
+        {
+            while(1) {
+                long ch = getchar();
+                if(ch >= 0) {
+                    f->a0 = ch;
+                    break;
+                }
+                yield();
+            }
+            break;
+        }
+        case SYS_EXIT:
+        {
+            printf("process %d exited\n", current_proc->pid);
+            current_proc->state = PROC_EXITED;
+            yield();
+            PANIC("unreachable");
+            break;
+        }
+        default:
+            PANIC("unexpected syscall a3=$x\n", f->a3);
     }
 }
 
-void proc_b_entry(void) {
-    printf("starting process B\n");
-    while (1) {
-        // putchar('B');
-        yield();
+void handle_trap(struct trap_frame *f) {
+    uint32_t scause = READ_CSR(scause);
+    uint32_t stval = READ_CSR(stval);
+    uint32_t user_pc = READ_CSR(sepc);
+
+    if(scause == SCAUSE_ECALL) {
+        handle_syscall(f);
+        // ecall 명령어의 크기 
+        // sepc가 예외 발생 후에는 ecall을 가리킴. (반복적으로 ecall 실행 방지)
+        user_pc += 4;       
+    } else {
+        PANIC("unexpected trap scause=%x, stval=%x, sepc=%x\n", scause, stval, user_pc);
     }
+
+    WRITE_CSR(sepc, user_pc);
 }
+
 
 void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
     WRITE_CSR(stvec, (uint32_t) kernel_entry);      // 예외 발생시 호출할 함수 설정
+    // printf("\n\n");
 
     idle_proc = create_process(NULL, 0);
     idle_proc->pid = 0;     // idle

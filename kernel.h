@@ -2,6 +2,11 @@
 
 #include "common.h"
 
+#define PROCS_MAX 8
+#define PROC_UNUSED 0
+#define PROC_RUNNABLE 1
+#define PROC_EXITED 2
+
 #define PAGE_SIZE 4096
 
 #define SATP_SV32 (1u << 31)    // satp에 31번째 비트에 1을 줘 가상 주소를 사용하고 있음을 알리는 역할할
@@ -11,8 +16,10 @@
 #define PAGE_X (1 << 3)         // 실행 가능
 #define PAGE_U (1 << 4)         // 사용자 모드 접근 가능능
 
-#define USER_BASE 0x100000
+#define USER_BASE 0x1000000
+
 #define SSTATUS_SPIE (1 << 5)
+#define SCAUSE_ECALL 8
 
 struct sbiret
 {
