@@ -12,10 +12,12 @@ sudo apt update && sudo apt install -y clang llvm lld qemu-system-riscv32 curl
 
 2. git clone 및 `QEMU` 로드 파일 다운로드
 ```
+git clone https://github.com/green-21/os-1000.git && \
+cd os-1000 && \
 curl -LO https://github.com/qemu/qemu/raw/v8.0.4/pc-bios/opensbi-riscv32-generic-fw_dynamic.bin
 ```
 
-
+3. 실행
 ```
 ./run.sh
 ```
